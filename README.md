@@ -235,22 +235,38 @@ The timeline shows every step: SAM's boxes on the certificate, the metadata Muse
 
 ## 9. Run it yourself
 
+You need Python 3.10+ and Redis (`redis-server`, or `docker run -p 6379:6379 redis:7`).
+
 ```bash
 git clone https://github.com/RamanthArupa/mudrika && cd mudrika
 pip install -r requirements.txt
-redis-server &
+cp .env.example .env           # fill in keys, or leave them for offline mode
+```
 
-cp .env.example .env           # then fill in your Meta and Baseten keys
+**Option A: full run with models** (Meta Model API key + Baseten key)
+
+```bash
 set -a; source .env; set +a
-
 uvicorn credentials.issuer_app:app --port 8000 &
-ISSUER_URL=http://localhost:8000 uvicorn credentials.medaffin_app:app --port 8001
+uvicorn credentials.medaffin_app:app --port 8001
+# open http://localhost:8001 (wait ~1 min for the issuer to index: http://localhost:8000/status)
+```
+
+**Option B: offline run, no keys needed.** The whole protocol (402, budget, signed voucher, atomic charge, refund) runs for real. Only the model calls are replaced:
+- SAM regions come from the certificate template, labelled `layout`
+- metadata comes from the sample's known fields
+- the buy decision is a fixed rule, labelled `offline rule`
+
+```bash
+export MUDRIKA_OFFLINE=1 MUDRIKA_ADMIN_TOKEN=local-admin ISSUER_URL=http://localhost:8000
+uvicorn credentials.issuer_app:app --port 8000 &
+uvicorn credentials.medaffin_app:app --port 8001
 # open http://localhost:8001
 ```
 
-No keys? Set `MUDRIKA_OFFLINE=1`. Regions then come from the known template layout, and the dashboard labels them `layout`.
+If a Meta key is set but no Baseten key, the buy decision uses the same labelled offline rule, so the payment never stalls.
 
-Tests: `pytest` (the protocol tests need a local Redis; the matching tests run offline).
+**Tests:** `pytest`. The protocol tests need Redis on `localhost:6379`. The matching tests run offline.
 
 ### Deploy your own copy on Render
 

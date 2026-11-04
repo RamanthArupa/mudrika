@@ -144,7 +144,24 @@ DECIDER_SYSTEM = (
 )
 
 
+def _same_issuer(a: Optional[str], b: Optional[str]) -> bool:
+    norm = lambda v: " ".join((v or "").lower().split())
+    return bool(a and b) and (norm(a) in norm(b) or norm(b) in norm(a))
+
+
 def make_decider(metadata: dict, issuer_name: str, trace: list):
+    if segment.offline() or not os.environ.get("BASETEN_API_KEY"):
+        async def rule_decider(ctx: PurchaseContext) -> Decision:
+            if not _same_issuer(metadata.get("issuer"), issuer_name):
+                decision = Decision(approve=False, summary="certificate names a different issuer than the seller; declining")
+            else:
+                decision = Decision(approve=True, summary="issuer matches the certificate and the lookup fits the case budget")
+            trace.append({"step": "decision_model", "source": "offline rule (no Baseten key)",
+                          "approve": decision.approve, "summary": decision.summary, "ms": 0})
+            return decision
+
+        return rule_decider
+
     async def decider(ctx: PurchaseContext) -> Decision:
         started = time.perf_counter()
         user = json.dumps({
@@ -219,7 +236,7 @@ async def run_case(
 
     # 2. SAM 3.1 segmentation (buyer side)
     t = time.perf_counter()
-    segs = await segment.segment(img, layout_fallback=False)
+    segs = await segment.segment(img, layout_fallback=segment.offline())
     found = {r: s for r, s in segs.items() if s.get("box")}
     steps.append({"step": "segment", "title": "SAM 3.1 segments the certificate",
                   "status": "ok" if found else "warn",
@@ -229,6 +246,10 @@ async def run_case(
     # 3. Muse Spark metadata extraction
     t = time.perf_counter()
     try:
+        if segment.offline():
+            if truth is None:
+                raise ModelError("offline mode: uploads need META_API_KEY; use a sample certificate")
+            raise ModelError("offline mode")
         metadata = await muse_json(EXTRACT_PROMPT, images=[certs.to_png(img)])
         meta_source = os.environ.get("META_MUSE_MODEL", "muse-spark-1.3")
         meta_status = "ok"
@@ -236,7 +257,10 @@ async def run_case(
         if truth is None:
             steps.append({"step": "extract", "title": "Muse reads metadata", "status": "error", "detail": str(exc)[:300]})
             return {"case_id": case_id, "steps": steps, "outcome": onboarding_outcome(None, False, False)}
-        metadata, meta_source, meta_status = dict(truth), f"sample ground truth (model error: {str(exc)[:80]})", "warn"
+        if segment.offline():
+            metadata, meta_source, meta_status = dict(truth), "offline mode: the sample's known fields", "warn"
+        else:
+            metadata, meta_source, meta_status = dict(truth), f"sample ground truth (model error: {str(exc)[:80]})", "warn"
     metadata = {k: (str(v) if v is not None else None) for k, v in metadata.items()
                 if k in ("name", "registration_number", "qualification", "issue_date", "issuer")}
     steps.append({"step": "extract", "title": "Muse Spark reads the metadata", "status": meta_status,
