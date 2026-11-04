@@ -240,10 +240,8 @@ git clone https://github.com/RamanthArupa/mudrika && cd mudrika
 pip install -r requirements.txt
 redis-server &
 
-export META_API_KEY=...        # Meta Model API: SAM 3.1 + Muse Spark
-export BASETEN_API_KEY=...     # Baseten: Muse Spark Open
-export BASETEN_MODEL=meta-models/muse-spark-open-1026
-export MUDRIKA_ADMIN_TOKEN=$(python -c "import secrets; print(secrets.token_hex(16))")
+cp .env.example .env           # then fill in your Meta and Baseten keys
+set -a; source .env; set +a
 
 uvicorn credentials.issuer_app:app --port 8000 &
 ISSUER_URL=http://localhost:8000 uvicorn credentials.medaffin_app:app --port 8001
@@ -285,7 +283,7 @@ print(result.trace)   # challenge → decision → signed_retry → settled
 
 ## 11. Security and secrets
 
-- **No API keys are in this repository.** Meta and Baseten keys are read from environment variables (`META_API_KEY`, `BASETEN_API_KEY`) that are set as secrets on the host. `.env` files are git-ignored.
+- **No API keys are in this repository.** Meta and Baseten keys are read from environment variables (`META_API_KEY`, `BASETEN_API_KEY`) that are set as secrets on the host. [`.env.example`](.env.example) lists every variable with placeholder values; your real `.env` is git-ignored.
 - The admin token and the signing seeds are also host secrets. They are never committed.
 - Agent and issuer keys are Ed25519. The issuer publishes its public key at `/.well-known/mudrika`.
 - Admin routes (register agents, top up credits) fail closed: they stay disabled until `MUDRIKA_ADMIN_TOKEN` is set.
