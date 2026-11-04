@@ -20,7 +20,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import logging
+
 import httpx
+
+log = logging.getLogger("mudrika.models")
 
 META_BASE_URL = os.environ.get("META_BASE_URL", "https://api.meta.ai/v1")
 META_SAM_MODEL = os.environ.get("META_SAM_MODEL", "sam-3.1")
@@ -144,7 +148,9 @@ async def sam_segment(png_bytes: bytes, concept: str, img_w: int, img_h: int, ti
     except httpx.HTTPError as exc:
         raise ModelError(f"SAM 3.1 transport error: {exc}") from exc
     text = final_text if final_text else "".join(deltas)
-    return parse_sam_boxes(text, concept, img_w, img_h), text
+    boxes = parse_sam_boxes(text, concept, img_w, img_h)
+    log.info("sam-3.1 %r -> %d boxes; raw[:240]=%r", concept, len(boxes), text[:240])
+    return boxes, text
 
 
 def _output_text_from_response(response: dict) -> str:
@@ -181,18 +187,26 @@ def extract_json(text: str) -> dict:
     raise ModelError(f"no JSON object in model reply: {text[:200]}")
 
 
-async def _chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout: float, auth_scheme: str = "Bearer") -> str:
+async def _chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout: float,
+                auth_schemes: tuple[str, ...] = ("Bearer",)) -> str:
+    resp = None
     try:
         async with httpx.AsyncClient(timeout=timeout) as http:
-            resp = await http.post(
-                f"{base_url}/chat/completions",
-                headers={"Authorization": f"{auth_scheme} {api_key}", "Content-Type": "application/json"},
-                json={"model": model, "messages": messages, "temperature": 0},
-            )
+            for scheme in auth_schemes:
+                resp = await http.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Authorization": f"{scheme} {api_key}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": messages, "temperature": 0},
+                )
+                if resp.status_code not in (401, 403):
+                    break
+                log.warning("%s auth scheme %s -> HTTP %s: %s", model, scheme, resp.status_code, resp.text[:300])
     except httpx.HTTPError as exc:
         raise ModelError(f"{model} transport error: {exc}") from exc
+    assert resp is not None
     if resp.status_code >= 400:
-        raise ModelError(f"{model} HTTP {resp.status_code}: {resp.text[:500]}")
+        log.warning("%s HTTP %s: %s", model, resp.status_code, resp.text[:500])
+        raise ModelError(f"{model} HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
     try:
         message = data["choices"][0]["message"]
@@ -210,7 +224,8 @@ async def muse_json(prompt: str, images: Optional[list[bytes]] = None, system: s
     for img in images or []:
         content.append({"type": "image_url", "image_url": {"url": data_url(img)}})
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
-    text = await _chat(META_BASE_URL, _meta_key(), META_MUSE_MODEL, messages, timeout)
+    text = await _chat(META_BASE_URL, _meta_key().strip(), META_MUSE_MODEL, messages, timeout)
+    log.info("%s reply[:200]=%r", META_MUSE_MODEL, text[:200])
     return extract_json(text)
 
 
@@ -220,5 +235,5 @@ async def muse_open_json(system: str, user: str, timeout: float = 60.0) -> dict:
     if not key:
         raise ModelError("BASETEN_API_KEY is not set")
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    text = await _chat(BASETEN_BASE_URL, key, BASETEN_MODEL, messages, timeout)
+    text = await _chat(BASETEN_BASE_URL, key.strip(), BASETEN_MODEL, messages, timeout, auth_schemes=("Bearer", "Api-Key"))
     return extract_json(text)
