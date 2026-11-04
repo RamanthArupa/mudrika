@@ -51,3 +51,22 @@ def test_seal_only_forgery_is_not_a_match():
     assert matching.match(samples["forged"].truth, regs, index)["verdict"] == "NEAR_MATCH"
     regs = {k: v for k, v in _submit(samples["genuine"]).items() if k == "seal"}
     assert matching.match(samples["genuine"].truth, regs, index)["verdict"] == "MATCH"
+
+
+def test_live_sam_boxes_separate_genuine_and_altered_seal():
+    """Regression: the boxes SAM 3.1 returned in production for the demo seals."""
+    ref = vision.fingerprint(vision.crop(certs.render(certs.REGISTRY[0]), (98, 478, 281, 662)))
+    samples = certs.applicant_samples()
+    genuine = vision.fingerprint(vision.crop(samples["genuine"].image, (87, 430, 252, 595)))
+    forged = vision.fingerprint(vision.crop(samples["forged"].image, (91, 442, 261, 612)))
+    assert vision.region_similarity(ref, genuine) >= 0.9
+    assert vision.region_similarity(ref, forged) < 0.7
+    index = [{"cert_id": "dmc-0001", "metadata": certs.REGISTRY[0].metadata(), "regions": {"seal": ref}}]
+    assert matching.match(samples["genuine"].truth, {"seal": genuine}, index)["verdict"] == "MATCH"
+    assert matching.match(samples["forged"].truth, {"seal": forged}, index)["verdict"] == "NEAR_MATCH"
+
+
+def test_real_seal_alone_does_not_lift_an_unknown_registrant():
+    index, samples = _index(), certs.applicant_samples()
+    regs = {k: v for k, v in _submit(samples["unknown"]).items() if k == "seal"}
+    assert matching.match(samples["unknown"].truth, regs, index)["verdict"] == "NO_MATCH"

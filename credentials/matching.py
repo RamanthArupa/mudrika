@@ -3,8 +3,9 @@
 Score = 0.55 * metadata similarity + 0.45 * visual similarity of SAM regions.
 
 Verdicts (returned by the issuer, interpreted by the buyer):
-- MATCH       total >= 0.85, metadata >= 0.90, visual >= 0.75 and every compared region >= 0.85
-- NEAR_MATCH  total >= 0.65 (something is close but not right: route to review)
+- MATCH       total >= 0.85, metadata >= 0.90, visual >= 0.75 and every compared region >= 0.75
+- NEAR_MATCH  total >= 0.65 and metadata >= 0.70 (a real record is close but not identical: review)
+  (every certificate a council issues carries the same seal, so the seal alone never lifts a case)
 - NO_MATCH    otherwise
 """
 from __future__ import annotations
@@ -89,15 +90,15 @@ def match(submitted_meta: dict, submitted_regions: dict, index: list[dict], top_
     assert best is not None
     meta, visual, total = best["metadata_score"], best["visual_score"] or 0.0, best["total_score"]
     min_region = min(best["visual_detail"].values()) if best["visual_detail"] else 0.0
-    if total >= 0.85 and meta >= 0.90 and visual >= 0.75 and min_region >= 0.85:
+    if total >= 0.85 and meta >= 0.90 and visual >= 0.75 and min_region >= 0.75:
         verdict = "MATCH"
-    elif total >= 0.65:
+    elif total >= 0.65 and meta >= 0.70:
         verdict = "NEAR_MATCH"
     else:
         verdict = "NO_MATCH"
     flags = []
-    if meta >= 0.90 and (visual < 0.75 or min_region < 0.85):
-        weak = [r for r, s in best["visual_detail"].items() if s < 0.85]
+    if meta >= 0.90 and (visual < 0.75 or min_region < 0.75):
+        weak = [r for r, s in best["visual_detail"].items() if s < 0.75]
         weak = weak or ["regions"]
         verb = "does" if len(weak) == 1 else "do"
         flags.append(f"text matches an issued record but the {' and '.join(weak)} {verb} not match")

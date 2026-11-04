@@ -205,7 +205,7 @@ async def registry_image(cert_id: str):
 
 # ---------------- paid lookup ----------------
 class RegionFingerprint(BaseModel):
-    dhash: str = Field(pattern=r"^[0-9a-f]{16}$")
+    dhash: str = Field(pattern=r"^[0-9a-f]{16,64}$")
     color: list[int] = Field(min_length=3, max_length=3)
     size: list[int] = Field(default_factory=list)
     png_b64: Optional[str] = Field(default=None, max_length=400_000)
@@ -258,7 +258,7 @@ async def credential_match(body: MatchRequest):
         for region, score in best["visual_detail"].items():
             sub_png = regions.get(region, {}).get("png_b64")
             ref_png = ref["regions"].get(region, {}).get("png_b64")
-            if score < 0.85 and sub_png and ref_png:
+            if score < 0.75 and sub_png and ref_png:
                 verdict = await _adjudicate(region, sub_png, ref_png)
                 if verdict is not None:
                     adjudication[region] = verdict

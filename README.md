@@ -202,8 +202,8 @@ flowchart LR
 
 | Verdict | Rule |
 |---|---|
-| `MATCH` | total ≥ 0.85, metadata ≥ 0.90, visual ≥ 0.75, **and every compared region (seal, signature, photo) ≥ 0.85** |
-| `NEAR_MATCH` | total ≥ 0.65: close to a real record but not identical |
+| `MATCH` | total ≥ 0.85, metadata ≥ 0.90, visual ≥ 0.75, **and every compared region (seal, signature, photo) ≥ 0.75** |
+| `NEAR_MATCH` | total ≥ 0.65 **and** metadata ≥ 0.70: close to a real record but not identical. (Every certificate a council issues carries the same seal, so the seal alone never lifts a case.) |
 | `NO_MATCH` | anything lower |
 
 ## 7. From verdict to decision

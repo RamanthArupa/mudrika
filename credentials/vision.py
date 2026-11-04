@@ -1,7 +1,7 @@
 """Region crops and perceptual fingerprints for SAM 3.1 segments.
 
 Fingerprints are deliberately simple and dependency-free (Pillow only):
-- dHash (64-bit difference hash) captures the region's structure and survives
+- dHash (144-bit difference hash, 12x12) captures the region's structure and survives
   rescans, small rotations and JPEG noise;
 - mean colour captures ink colour (a red council seal vs a blue forgery).
 """
@@ -25,7 +25,7 @@ def crop(img: Image.Image, box: tuple[int, int, int, int], pad: int = 4) -> Imag
     return region
 
 
-def dhash(img: Image.Image, size: int = 8) -> str:
+def dhash(img: Image.Image, size: int = 12) -> str:
     gray = img.convert("L").resize((size + 1, size), Image.LANCZOS)
     px = list(gray.getdata())
     bits = 0
@@ -34,7 +34,7 @@ def dhash(img: Image.Image, size: int = 8) -> str:
             left = px[row * (size + 1) + col]
             right = px[row * (size + 1) + col + 1]
             bits = (bits << 1) | (1 if left > right else 0)
-    return f"{bits:0{size * size // 4}x}"
+    return f"{bits:0{(size * size + 3) // 4}x}"
 
 
 def mean_color(img: Image.Image) -> list[int]:
@@ -53,6 +53,8 @@ def fingerprint(region: Image.Image) -> dict:
 
 def hash_similarity(a: str, b: str) -> float:
     """1.0 = identical, ~0.5 = unrelated images."""
+    if len(a) != len(b):  # fingerprints from different versions: treat as unrelated
+        return 0.5
     bits = len(a) * 4
     return 1.0 - bin(int(a, 16) ^ int(b, 16)).count("1") / bits
 
@@ -67,7 +69,12 @@ def region_similarity(a: dict, b: dict) -> float:
     h = hash_similarity(a["dhash"], b["dhash"])
     h_norm = max(0.0, min(1.0, (h - 0.5) / 0.5))
     c = color_similarity(a["color"], b["color"])
-    return round(0.75 * h_norm + 0.25 * c, 4)
+    score = 0.6 * h_norm + 0.4 * c
+    # Ink colour is a strong forgery cue (a blue stamp on a red-seal council's
+    # certificate): a clear colour mismatch caps the score, however similar the shape.
+    if c < 0.8:
+        score = min(score, c)
+    return round(score, 4)
 
 
 def png_b64(img: Image.Image) -> str:
