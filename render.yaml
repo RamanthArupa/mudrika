@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: mudrika-issuer
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn credentials.issuer_app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: MUDRIKA_REDIS_URL
+        fromService: { type: keyvalue, name: mudrika-ledger, property: connectionString }
+      - key: MUDRIKA_ADMIN_TOKEN
+        generateValue: true
+      - key: ISSUER_SIGNING_SEED
+        generateValue: true
+      - key: META_API_KEY
+        sync: false
+  - type: web
+    name: mudrika-medaffin
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn credentials.medaffin_app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/samples
+    envVars:
+      - key: ISSUER_URL
+        value: https://mudrika-issuer.onrender.com
+      - key: MUDRIKA_ADMIN_TOKEN
+        fromService: { type: web, name: mudrika-issuer, envVarKey: MUDRIKA_ADMIN_TOKEN }
+      - key: AGENT_SIGNING_SEED
+        generateValue: true
+      - key: META_API_KEY
+        sync: false
+      - key: BASETEN_API_KEY
+        sync: false
+  - type: keyvalue
+    name: mudrika-ledger
+    plan: starter
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
