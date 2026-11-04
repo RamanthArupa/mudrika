@@ -138,6 +138,8 @@ def render(record: CertRecord, *, seal_label: Optional[str] = None) -> Image.Ima
     d.rectangle((26, 26, W - 26, H - 26), outline=(170, 150, 100), width=1)
     _center_text(d, 50, record.issuer.upper(), 40, fill=(90, 60, 20))
     _center_text(d, 104, "Certificate of Registration", 26, fill=(60, 60, 60))
+    # Clearly fictional: these images must never pass for real credentials.
+    _center_text(d, 146, "SPECIMEN · FICTIONAL DEMO DATA · NOT A REAL CREDENTIAL", 16, fill=(200, 40, 40))
     d.text((90, 190), "This is to certify that", font=_font(22), fill=(50, 50, 50))
     d.text((90, 228), record.name, font=_font(40), fill=(10, 10, 10))
     d.text((90, 300), f"Qualification: {record.qualification}", font=_font(22), fill=(30, 30, 30))

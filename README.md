@@ -11,7 +11,7 @@ In Sanskrit, a *mudrika* is a signet ring. It's the seal a king pressed on an or
 > Models: **SAM 3.1** and **Muse Spark** via Meta Model API, **Muse Spark Open** via Baseten. *Built with Muse Spark Open.*
 > Open source under the MIT licence.
 
-**Live demo:** https://mudrika-medaffin.onrender.com · Issuer node: https://mudrika-issuer.onrender.com/.well-known/mudrika
+**Live demo:** https://mudrika-medaffin.onrender.com (access code in the hackathon submission). The issuer node is a machine-to-machine API that the dashboard calls server-side; you never need to open it.
 
 ---
 

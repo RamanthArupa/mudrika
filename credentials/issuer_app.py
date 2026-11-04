@@ -22,7 +22,7 @@ from typing import Optional
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from mudrika import MudrikaLedger
@@ -41,7 +41,7 @@ SELLER_ID = os.environ.get("MUDRIKA_SELLER_ID", "demo-medical-council")
 ADMIN_TOKEN = os.environ.get("MUDRIKA_ADMIN_TOKEN")
 DEMO_MODE = os.environ.get("MUDRIKA_DEMO", "1") == "1"
 MATCH_COST = int(os.environ.get("MUDRIKA_MATCH_COST", "15"))
-INDEX_KEY = f"mudrika:issuer:{SELLER_ID}:index"
+INDEX_KEY = f"mudrika:issuer:{SELLER_ID}:index:v2"
 
 
 def _issuer_secret() -> str:
@@ -102,6 +102,22 @@ async def _startup() -> None:
     asyncio.create_task(runner())
 
 
+NOTICE = ("Machine-to-machine API for the open-source Mudrika demo. The 'Demo Medical Council' and all "
+          "certificates are fictional. Source: https://github.com/RamanthArupa/mudrika")
+
+
+@app.middleware("http")
+async def _no_index(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots():
+    return "User-agent: *\nDisallow: /\n"
+
+
 # ---------------- admin (trusted) ----------------
 def _require_admin(request: Request) -> None:
     if not ADMIN_TOKEN:
@@ -158,6 +174,7 @@ async def reindex(request: Request):
 async def root():
     return {
         "service": "Mudrika issuer node",
+        "notice": NOTICE,
         "issuer": certs.ISSUER,
         "seller_id": SELLER_ID,
         "status": STATE["status"],
@@ -170,6 +187,7 @@ async def root():
 async def well_known():
     return {
         "protocol": "mudrika/1.0",
+        "notice": NOTICE,
         "seller_id": SELLER_ID,
         "issuer": certs.ISSUER,
         "issuer_public_key": ISSUER_PUBLIC,

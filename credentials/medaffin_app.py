@@ -23,6 +23,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections import deque
@@ -31,7 +32,7 @@ from typing import Optional
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from PIL import Image
 
 from mudrika import Decision, MudrikaClient, PurchaseContext
@@ -126,6 +127,30 @@ async def issuer_balance() -> Optional[int]:
         return int((await _admin("GET", f"/admin/agents/{AGENT_ID}/balance"))["balance"])
     except Exception:
         return None
+
+
+@app.middleware("http")
+async def _no_index(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots():
+    return "User-agent: *\nDisallow: /\n"
+
+
+@app.get("/api/reference/{cert_id}.png")
+async def reference_image(cert_id: str):
+    """Fetch the issuer's reference image server-side, so the browser only talks to this app."""
+    if not re.fullmatch(r"dmc-\d{4}", cert_id):
+        raise HTTPException(404, "unknown certificate")
+    async with httpx.AsyncClient(timeout=15) as http:
+        resp = await http.get(f"{ISSUER_URL}/registry/{cert_id}.png")
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, "reference image unavailable")
+    return Response(resp.content, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
 
 
 # ---------------- pages ----------------
@@ -394,7 +419,7 @@ async def run_case(
         steps.append({"step": "match", "title": "Issuer's signed match result",
                       "status": "ok" if sig_ok else "error",
                       "detail": {"signature_valid": sig_ok, "result": result,
-                                 "reference_image": f"{ISSUER_URL}/registry/{result['matched_cert_id']}.png"
+                                 "reference_image": f"/api/reference/{result['matched_cert_id']}.png"
                                  if result.get("matched_cert_id") else None}})
     elif resp.status_code not in (200, 402):
         try:
