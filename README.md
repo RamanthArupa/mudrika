@@ -221,7 +221,7 @@ Mudrika never makes the final call on a borderline case. `NEAR_MATCH` always goe
 
 ## 8. Try the demo
 
-Open **https://mudrika-medaffin.onrender.com**, pick a certificate and press **Run onboarding case**.
+Open **https://mudrika-medaffin.onrender.com**, enter the demo access code (in the hackathon submission), pick a certificate and press **Run onboarding case**. No code? Run it locally in offline mode ([section 9](#9-run-it-yourself)). It needs no keys.
 
 | Try this | What you'll see |
 |---|---|
@@ -316,6 +316,13 @@ print(result.trace)   # challenge → decision → signed_retry → settled
 - Agent and issuer keys are Ed25519. The issuer publishes its public key at `/.well-known/mudrika`.
 - Admin routes (register agents, top up credits) fail closed: they stay disabled until `MUDRIKA_ADMIN_TOKEN` is set.
 - Only crops and extracted text leave Medaffin. The full certificate image stays with the buyer.
+- **The public demo is protected against credit abuse.** Every case spends real Meta and Baseten credits, so the hosted dashboard:
+  - requires an access code (`DEMO_ACCESS_CODE`, shared with judges privately, never in this repo)
+  - rate-limits each IP address (15 cases an hour) and caps total use (300 cases a day)
+  - limits uploads to 4 MB
+  - caches SAM 3.1 and Muse results for the sample certificates, so repeat demos cost a single decision call
+- **Only registered agents can buy lookups.** The issuer's paid endpoint accepts only agents registered with the admin token. A random caller gets a 402 and has no registered key to sign with. The issuer caches its SAM 3.1 index, so restarts don't re-spend credits.
+- **Local runs need no access code.** Leave `DEMO_ACCESS_CODE` unset.
 
 ## 12. Honest scope
 

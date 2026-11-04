@@ -18,17 +18,19 @@ full certificate.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import logging
 import os
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 
@@ -46,6 +48,44 @@ ADMIN_TOKEN = os.environ.get("MUDRIKA_ADMIN_TOKEN", "")
 AGENT_ID = os.environ.get("MEDAFFIN_AGENT_ID", "medaffin-onboarding-01")
 START_CREDITS = int(os.environ.get("MEDAFFIN_START_CREDITS", "300"))
 STATIC = Path(__file__).parent / "static"
+
+# --- abuse protection for the public demo -----------------------------------
+# Every case spends real Meta / Baseten credits, so the public dashboard is
+# gated. Leave DEMO_ACCESS_CODE unset for local runs.
+DEMO_ACCESS_CODE = os.environ.get("DEMO_ACCESS_CODE", "")
+CASES_PER_IP_PER_HOUR = int(os.environ.get("DEMO_CASES_PER_IP_PER_HOUR", "15"))
+CASES_PER_DAY = int(os.environ.get("DEMO_CASES_PER_DAY", "300"))
+MAX_UPLOAD_BYTES = int(os.environ.get("DEMO_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
+_ip_hits: dict[str, deque] = {}
+_day_hits: deque = deque()
+# Sample certificates are fixed images: their SAM 3.1 + Muse results are
+# cached after the first successful run, so repeat demos cost one decision call.
+_SAMPLE_CACHE: dict[str, dict] = {}
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+
+
+def _check_access(code: Optional[str]) -> None:
+    if DEMO_ACCESS_CODE and not hmac.compare_digest((code or "").strip(), DEMO_ACCESS_CODE):
+        raise HTTPException(401, "access code required: this public demo spends real model credits")
+
+
+def _rate_limit(request: Request) -> None:
+    now = time.time()
+    while _day_hits and now - _day_hits[0] > 86400:
+        _day_hits.popleft()
+    if len(_day_hits) >= CASES_PER_DAY:
+        raise HTTPException(429, "daily demo limit reached; run it locally from the README")
+    hits = _ip_hits.setdefault(_client_ip(request), deque())
+    while hits and now - hits[0] > 3600:
+        hits.popleft()
+    if len(hits) >= CASES_PER_IP_PER_HOUR:
+        raise HTTPException(429, "too many cases from this address; try again in an hour")
+    hits.append(now)
+    _day_hits.append(now)
 
 
 def _agent_secret() -> str:
@@ -94,6 +134,11 @@ async def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/api/config")
+async def config():
+    return {"access_code_required": bool(DEMO_ACCESS_CODE)}
+
+
 @app.get("/api/samples")
 async def samples():
     return [{"key": s.key, "title": s.title, "description": s.description, "image": f"/samples/{s.key}.png"}
@@ -123,9 +168,10 @@ async def agent_info():
 
 
 @app.post("/api/topup")
-async def topup(credits: int = Form(100)):
+async def topup(credits: int = Form(100), access_code: str = Form("")):
+    _check_access(access_code)
     await ensure_registered()
-    return await _admin("POST", f"/admin/agents/{AGENT_ID}/topup", {"credits": max(1, min(credits, 1000))})
+    return await _admin("POST", f"/admin/agents/{AGENT_ID}/topup", {"credits": max(1, min(credits, 100))})
 
 
 # ---------------- the onboarding case ----------------
@@ -142,6 +188,10 @@ DECIDER_SYSTEM = (
     "Decline when the issuer does not correspond to the certificate, or the spend would leave no budget for the "
     "case. Reply with JSON only: {\"approve\": true|false, \"summary\": \"<one sentence>\"}"
 )
+
+
+class _Cached(Exception):
+    pass
 
 
 def _same_issuer(a: Optional[str], b: Optional[str]) -> bool:
@@ -206,11 +256,16 @@ def onboarding_outcome(verdict: Optional[str], declined: bool, refunded: bool) -
 
 @app.post("/api/cases")
 async def run_case(
+    request: Request,
     sample: str = Form("genuine"),
     budget: int = Form(40),
     simulate_issuer_failure: bool = Form(False),
+    access_code: str = Form(""),
     upload: Optional[UploadFile] = File(None),
 ):
+    _check_access(access_code)
+    _rate_limit(request)
+    budget = max(5, min(int(budget), 100))
     case_id = "case-" + uuid.uuid4().hex[:8]
     steps: list[dict] = []
     started_case = time.perf_counter()
@@ -218,9 +273,9 @@ async def run_case(
     # 1. intake
     truth: Optional[dict] = None
     if upload is not None and upload.filename:
-        raw = await upload.read()
-        if len(raw) > 8_000_000:
-            raise HTTPException(413, "certificate image must be under 8 MB")
+        raw = await upload.read(MAX_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"certificate image must be under {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
         try:
             img = Image.open(io.BytesIO(raw)).convert("RGB")
         except Exception as exc:
@@ -231,21 +286,31 @@ async def run_case(
         if sample not in SAMPLES:
             raise HTTPException(404, "unknown sample")
         img, truth, source_label = SAMPLES[sample].image, SAMPLES[sample].truth, SAMPLES[sample].title
+    cache_key = sample if upload is None or not upload.filename else None
+    cached = _SAMPLE_CACHE.get(cache_key) if cache_key else None
     steps.append({"step": "intake", "title": "Expert applies", "status": "ok",
                   "detail": {"source": source_label, "width": img.width, "height": img.height}})
 
     # 2. SAM 3.1 segmentation (buyer side)
     t = time.perf_counter()
-    segs = await segment.segment(img, layout_fallback=segment.offline())
+    if cached:
+        segs = json.loads(json.dumps(cached["segs"]))
+        for item in segs.values():
+            if item.get("source") == "sam-3.1":
+                item["source"] = "sam-3.1 (cached)"
+    else:
+        segs = await segment.segment(img, layout_fallback=segment.offline())
     found = {r: s for r, s in segs.items() if s.get("box")}
     steps.append({"step": "segment", "title": "SAM 3.1 segments the certificate",
                   "status": "ok" if found else "warn",
                   "detail": {"regions": segs}, "ms": int((time.perf_counter() - t) * 1000)})
-    regions = segment.fingerprints(img, segs, with_png=True)
+    regions = cached["regions"] if cached else segment.fingerprints(img, segs, with_png=True)
 
     # 3. Muse Spark metadata extraction
     t = time.perf_counter()
     try:
+        if cached:
+            raise _Cached()
         if segment.offline():
             if truth is None:
                 raise ModelError("offline mode: uploads need META_API_KEY; use a sample certificate")
@@ -253,6 +318,8 @@ async def run_case(
         metadata = await muse_json(EXTRACT_PROMPT, images=[certs.to_png(img)])
         meta_source = os.environ.get("META_MUSE_MODEL", "muse-spark-1.3")
         meta_status = "ok"
+    except _Cached:
+        metadata, meta_source, meta_status = dict(cached["metadata"]), cached["meta_source"] + " (cached)", "ok"
     except ModelError as exc:
         if truth is None:
             steps.append({"step": "extract", "title": "Muse reads metadata", "status": "error", "detail": str(exc)[:300]})
@@ -263,6 +330,8 @@ async def run_case(
             metadata, meta_source, meta_status = dict(truth), f"sample ground truth (model error: {str(exc)[:80]})", "warn"
     metadata = {k: (str(v) if v is not None else None) for k, v in metadata.items()
                 if k in ("name", "registration_number", "qualification", "issue_date", "issuer")}
+    if cache_key and not cached and meta_status == "ok" and any(v.get("source") == "sam-3.1" for v in segs.values()):
+        _SAMPLE_CACHE[cache_key] = {"segs": segs, "regions": regions, "metadata": metadata, "meta_source": meta_source}
     steps.append({"step": "extract", "title": "Muse Spark reads the metadata", "status": meta_status,
                   "detail": {"metadata": metadata, "source": meta_source}, "ms": int((time.perf_counter() - t) * 1000)})
 

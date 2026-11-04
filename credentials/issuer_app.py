@@ -78,9 +78,10 @@ async def build_index(force: bool = False) -> None:
             "regions": segment.fingerprints(img, segs, with_png=True),
             "indexed_at": int(time.time()),
         }
-        # Only cache entries where SAM found every region, so a transient API
-        # failure is retried on the next start.
-        if all(s["source"] == "sam-3.1" for s in segs.values()):
+        # Cache once SAM found at least one region, so restarts don't re-spend
+        # SAM 3.1 credits; a total API failure is retried on the next start.
+        # POST /admin/reindex forces a rebuild.
+        if any(s["source"] == "sam-3.1" for s in segs.values()):
             await redis_client.hset(INDEX_KEY, record.cert_id, json.dumps(entry))
         index.append(entry)
         log.info("indexed %s: %s", record.cert_id, {r: s["source"] for r, s in segs.items()})

@@ -46,6 +46,9 @@ services:
         sync: false
       - key: BASETEN_MODEL
         value: meta-models/muse-spark-open-1026
+      # Gate the public dashboard: every case spends real model credits
+      - key: DEMO_ACCESS_CODE
+        sync: false
 
   - type: keyvalue
     name: mudrika-ledger
