@@ -252,7 +252,19 @@ No keys? Set `MUDRIKA_OFFLINE=1`. Regions then come from the known template layo
 
 Tests: `pytest` (the protocol tests need a local Redis; the matching tests run offline).
 
-Deploying to Render: `render.yaml` defines both services and the Key Value ledger. Add `META_API_KEY` and `BASETEN_API_KEY` as secrets in the Render dashboard.
+### Deploy your own copy on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/RamanthArupa/mudrika)
+
+1. Click the button. Render reads [`render.yaml`](render.yaml) and creates the issuer, the Medaffin agent and a persistent Key Value ledger (all on the Starter plan, about $24/month).
+2. When prompted, paste your `META_API_KEY` (both services) and `BASETEN_API_KEY` (Medaffin only). The admin token and signing seeds are generated for you.
+3. For `ISSUER_URL`, enter the issuer's public URL. If you don't know it yet, use a placeholder, then set it once the issuer is live.
+4. Wait about 2 minutes after the issuer starts: it segments its certificates with SAM 3.1 before it accepts lookups (`/status` shows `ready`).
+5. Open the Medaffin service URL and run a case.
+
+The Key Value ledger must be a paid plan with persistence. The free tier is in-memory and loses every agent's credits on restart.
+
+To redeploy after a code change, push to `main`. If your Render account isn't linked to GitHub, click **Manual Deploy → Deploy latest commit** on each service.
 
 ## 10. Use the protocol in your own API
 

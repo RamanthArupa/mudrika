@@ -1,12 +1,18 @@
+# Render Blueprint: two web services + a persistent Key Value ledger.
+# Deploy: https://render.com/deploy?repo=https://github.com/RamanthArupa/mudrika
+# You'll be prompted for the values marked `sync: false`.
 services:
   - type: web
     name: mudrika-issuer
     runtime: python
     plan: starter
+    region: oregon
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn credentials.issuer_app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: MUDRIKA_REDIS_URL
         fromService: { type: keyvalue, name: mudrika-ledger, property: connectionString }
       - key: MUDRIKA_ADMIN_TOKEN
@@ -15,16 +21,21 @@ services:
         generateValue: true
       - key: META_API_KEY
         sync: false
+
   - type: web
     name: mudrika-medaffin
     runtime: python
     plan: starter
+    region: oregon
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn credentials.medaffin_app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/samples
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Public URL of your issuer service, e.g. https://mudrika-issuer-xxxx.onrender.com
       - key: ISSUER_URL
-        value: https://mudrika-issuer.onrender.com
+        sync: false
       - key: MUDRIKA_ADMIN_TOKEN
         fromService: { type: web, name: mudrika-issuer, envVarKey: MUDRIKA_ADMIN_TOKEN }
       - key: AGENT_SIGNING_SEED
@@ -33,8 +44,12 @@ services:
         sync: false
       - key: BASETEN_API_KEY
         sync: false
+      - key: BASETEN_MODEL
+        value: meta-models/muse-spark-open-1026
+
   - type: keyvalue
     name: mudrika-ledger
     plan: starter
+    region: oregon
     maxmemoryPolicy: noeviction
     ipAllowList: []
