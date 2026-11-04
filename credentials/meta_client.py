@@ -9,7 +9,7 @@ Docs used:
 - SAM 3.1: POST /v1/responses, model "sam-3.1", input_text concept + input_image,
   streamed special-token output: <Nf>id<|box;x1=..;y1=..;x2=..;y2=..;w=W;h=H|><|mask;...|>,...
 - Muse Spark: OpenAI-compatible chat completions, model "muse-spark-1.3".
-- Baseten Model APIs: https://inference.baseten.co/v1, model "meta-models/muse-spark-open".
+- Baseten Model APIs: https://inference.baseten.co/v1, model "meta-models/muse-spark-open-1026".
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ META_BASE_URL = os.environ.get("META_BASE_URL", "https://api.meta.ai/v1")
 META_SAM_MODEL = os.environ.get("META_SAM_MODEL", "sam-3.1")
 META_MUSE_MODEL = os.environ.get("META_MUSE_MODEL", "muse-spark-1.3")
 BASETEN_BASE_URL = os.environ.get("BASETEN_BASE_URL", "https://inference.baseten.co/v1")
-BASETEN_MODEL = os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open")
+BASETEN_MODEL = os.environ.get("BASETEN_MODEL", "meta-models/muse-spark-open-1026")
 
 _BOX_RE = re.compile(r"(\d+)\s*<\|box;([^|>]*)\|>")
 
