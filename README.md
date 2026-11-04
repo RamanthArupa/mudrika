@@ -328,7 +328,7 @@ print(result.trace)   # challenge → decision → signed_retry → settled
 
 - **The issuer is simulated.** "Demo Medical Council" and its certificates are fictional. A real council would run `credentials/issuer_app.py` against its own records.
 - **What SAM 3.1 finds.** On real registration certificates uploaded through the dashboard, SAM 3.1 finds the **seal, signature and photo**, and Muse Spark reads the name, registration number and issuer. On the drawn demo certificates, SAM finds only the seal, so the issuer indexes the drawn signature and photo from its template and matches those on metadata. A real certificate uploaded to the hosted demo comes back "Not verified", because the demo issuer only holds fictional records. A real council would index its own certificates.
-- **Uploads go to Meta Model API.** Only upload certificates you own or have consent to use. The hosted demo doesn't store uploads.
+- **Uploads go to Meta Model API.** Only upload certificates you own or have consent to use. Mudrika keeps uploads in memory and doesn't store them. Meta's Responses API keeps responses by default (`store: true`), so check Meta's data terms before using real documents.
 - **Credits aren't money.** They're prepaid authorisation. A real payment rail (cards, x402, MPP) could top up the ledger later.
 - **A match is a signal, not a legal ruling.** Borderline cases always go to a person.
 
