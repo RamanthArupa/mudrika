@@ -42,3 +42,12 @@ def test_parse_sam_wire_format_scales_to_image():
 def test_extract_json_tolerates_fences_and_reasoning():
     assert extract_json('<think>hmm</think>```json\n{"approve": true, "summary": "ok"}\n```')["approve"] is True
     assert extract_json('Sure: {"name": "Dr. A", "x": {"y": 1}} done')["x"] == {"y": 1}
+
+
+def test_seal_only_forgery_is_not_a_match():
+    """With only the seal compared (what SAM finds today), a wrong seal must not pass."""
+    index, samples = _index(), certs.applicant_samples()
+    regs = {k: v for k, v in _submit(samples["forged"]).items() if k == "seal"}
+    assert matching.match(samples["forged"].truth, regs, index)["verdict"] == "NEAR_MATCH"
+    regs = {k: v for k, v in _submit(samples["genuine"]).items() if k == "seal"}
+    assert matching.match(samples["genuine"].truth, regs, index)["verdict"] == "MATCH"
